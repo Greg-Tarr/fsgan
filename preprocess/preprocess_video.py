@@ -189,9 +189,9 @@ class VideoProcessBase(object):
         self.device, self.gpus = set_device(gpus, not cpu_only)
 
         # Load models
-        self.face_pose = load_model(pose_model, 'face pose', self.device) if cache_pose else None
-        self.L = load_model(lms_model, 'face landmarks', self.device) if cache_landmarks else None
-        self.S = load_model(seg_model, 'face segmentation', self.device) if cache_segmentation else None
+        self.face_pose = load_model(pose_model, 'face pose', None) if cache_pose else None
+        self.L = load_model(lms_model, 'face landmarks', None) if cache_landmarks else None
+        self.S = load_model(seg_model, 'face segmentation', None) if cache_segmentation else None
 
         # Initialize heatmap encoder
         self.heatmap_encoder = LandmarksHeatMapEncoder().to(self.device)
@@ -249,10 +249,12 @@ class VideoProcessBase(object):
 
             # For each batch of frames in the input video
             seq_poses = []
+            self.face_pose.to(self.device) # EDIT: TO CUDA
             for i, frame in enumerate(tqdm(in_vid_loader, unit='batches', file=sys.stdout)):
                 frame = frame.to(self.device)
                 poses = self.face_pose(frame).div_(99.)  # Yaw, Pitch, Roll
                 seq_poses.append(poses.cpu().numpy())
+            self.face_pose.to('cpu') # EDIT: TO CPU
             seq_poses = np.concatenate(seq_poses)
 
             # Save poses to file
@@ -327,12 +329,14 @@ class VideoProcessBase(object):
 
             # For each batch of frames in the input video
             seq_landmarks = []
+            self.L.to(self.device) # EDIT: TO CUDA
             for i, frame in enumerate(tqdm(in_vid_loader, unit='batches', file=sys.stdout)):
                 frame = frame.to(self.device)
                 H = self.L(frame)
                 landmarks = self.heatmap_encoder(H)
                 seq_landmarks.append(landmarks.cpu().numpy())
             seq_landmarks = np.concatenate(seq_landmarks)
+            self.L.to('cpu') # EDIT: TO CPU
 
             # Save landmarks to file
             seq_landmarks_smoothed = smooth_landmarks_98pts(seq_landmarks, self.smooth_landmarks)
@@ -381,7 +385,9 @@ class VideoProcessBase(object):
                 frame = frame.to(self.device)
 
                 # Compute segmentation
+                self.S.to(self.device) # EDIT: TO CUDA
                 raw_segmentation = self.S(frame)
+                self.S.to('cpu') # EDIT: TO CPU
                 segmentation = torch.cat((prev_segmentation, raw_segmentation), dim=0) \
                     if prev_segmentation is not None else raw_segmentation
                 if segmentation.shape[0] > r:
